@@ -6,7 +6,6 @@ module Milia
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
-# TODO: options if using recaptcha
 # TODO: options if non-standard path for new signups view
 # ------------------------------------------------------------------------------
 # create -- intercept the POST create action upon new sign-up
@@ -18,37 +17,29 @@ def create
   
   sign_out_session!
 
-  if verify_recaptcha
+  Tenant.transaction  do 
+    @tenant = Tenant.create_new_tenant(params)
+    if @tenant.errors.empty?   # tenant created
+      
+      initiate_tenant( @tenant )    # first time stuff for new tenant
 
-    Tenant.transaction  do 
-      @tenant = Tenant.create_new_tenant(params)
-      if @tenant.errors.empty?   # tenant created
-        
-        initiate_tenant( @tenant )    # first time stuff for new tenant
+      devise_create   # devise resource(user) creation; sets resource
 
-        devise_create   # devise resource(user) creation; sets resource
+      if resource.errors.empty?   #  SUCCESS!
+      
+          # do any needed tenant initial setup
+        Tenant.tenant_signup(resource, @tenant, params[:coupon])
 
-        if resource.errors.empty?   #  SUCCESS!
-        
-            # do any needed tenant initial setup
-          Tenant.tenant_signup(resource, @tenant, params[:coupon])
+      else  # user creation failed; force tenant rollback
+        raise ActiveRecord::Rollback   # force the tenant transaction to be rolled back  
+      end  # if..then..else for valid user creation
 
-        else  # user creation failed; force tenant rollback
-          raise ActiveRecord::Rollback   # force the tenant transaction to be rolled back  
-        end  # if..then..else for valid user creation
+    else
+      prep_signup_view( @tenant, params[:user] , params[:coupon])
+      render :new
+    end # if .. then .. else no tenant errors
 
-      else
-        prep_signup_view( @tenant, params[:user] , params[:coupon])
-        render :new
-      end # if .. then .. else no tenant errors
-
-    end  #  wrap tenant/user creation in a transaction
-        
-  else
-    flash[:error] = "Recaptcha codes didn't match; please try again"
-    prep_signup_view( params[:tenant], params[:user], params[:coupon] )
-    render :new
-  end
+  end  #  wrap tenant/user creation in a transaction
 
 end   # def create
 
